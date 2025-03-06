@@ -1,4 +1,5 @@
 #!/bin/bash
+# use chinese comments in this file
 d=`date +%d-%m-%Y-%H-%M`
 pod_name=
 current_folder=$(pwd) 
@@ -13,9 +14,9 @@ selected_file=
 selected_aspect=
 re='^[0-9]+$'
 re_pod="^([a-zA-Z0-9]*)(-[a-zA-Z0-9]*){1,5}"
-container_name="" #introduce container name
+container_name="" #增加container name
 
-# select aspect
+# 选择aspect
 query_user_for_aspect(){
 	declare -a arrAspects
 	arrAspects=("accstorefront" "backoffice" "api" "backgroundprocessing" "solr" "zookeeper" "apache2" "jsapps")
@@ -34,7 +35,7 @@ query_user_for_aspect(){
 	arrAspects=()
 }
 
-# choose "selected_aspect" depending on the aspect
+# 根据 selected_aspect 选择不同的默认文件列表
 
 query_user_for_file(){
 
@@ -79,9 +80,9 @@ query_user_for_file(){
 }
 
 
-
+# 解析命令行参数
 # Loop through arguments and process them
-# introduce container option
+# 增加container 选项
 for arg in "$@"
 do
     case $arg in
@@ -106,7 +107,7 @@ do
         echo "-u|--uncompress -> use it when you want to uncompress downloaded file"
         echo "-p|--compress -> use it when you want to compress file which you are going to download"   #change the compress to -p
 		echo "-c|--container -> Specify the target container"
-		echo "script usage: kubectl ex-cp [-p|-u] [-c container_name] pod_name [file path]" #add new sample command
+		echo "script usage: kubectl ex-cp [-p|-u] [-c container_name] pod_name [file path]" #增加sample command
         exit 1
         ;;        
         *)
@@ -115,7 +116,7 @@ do
     esac
 done
 
-#check the container name
+#增加container的判断
 if [ -n "$container_name" ]; then
     container_option="--container $container_name"
 else
@@ -146,8 +147,8 @@ if [ -n "$1" ]
 			folder_for_cp=$selected_file
 	fi  
 
-
-#add container option
+#检查文件是否存在
+#增加container option
 	echo "we will check if file/folder $folder_for_cp exists"
     folder_check=$(kubectl exec $pod_name $container_option -- sh -c "test -d $folder_for_cp && echo 'it exists' || echo 'it does not exists'")
     file_check=$(kubectl exec $pod_name $container_option -- sh -c "test -f $folder_for_cp && echo 'it exists' || echo 'it does not exists'")
@@ -180,7 +181,7 @@ if [ -n "$1" ]
 			arch_file=$cp_file.tar.gz
 	fi
 
-#add containername	
+#增加containername	
 	if [ "$compress" = true ]
 		then
 			echo "we will compress ${cp_file}"
@@ -204,7 +205,7 @@ if [ -n "$1" ]
 	
 	echo "${cp_file} has been downloaded "
 	
-#compress and download
+#压缩和下载
 
 	if [ "$uncompress" = true ]
 		then		
@@ -229,5 +230,4 @@ if [ -n "$1" ]
 else 
   echo "you have to call script with at least 1 parameter [pod name]"
 fi
-
 
