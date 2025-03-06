@@ -4,13 +4,13 @@
    a. Change compression from "-c" to "-p" (abbreviation for pack)
    b. Introduce the "-c" option to add possibility to specify container.
 2. **Test steps:**
-   2.1 Download file from default container
+2.1 Download file from default container
 
    ```
    kubectl ex-cp -p solr-0 CHANGES.txt
    ```
 
-   2.2 Download folder from default container
+2.2 Download folder from default container
 
 ```
 kubectl ex-cp -p solr-0 bin 
