@@ -91,7 +91,7 @@ do
         echo "Target container set to: $container_name"
         shift
         ;;
-        -p|--compress)     #change the compress to -p
+        -p|--pack)     #change the pack to -p
         echo 'you have selected -p flag, so [file/folder] will be compressed'
         compress=true
         shift # Remove --compress from processing
@@ -104,7 +104,7 @@ do
         -h|--help)
         echo 'supported flags: '
         echo "-u|--uncompress -> use it when you want to uncompress downloaded file"
-        echo "-p|--compress -> use it when you want to compress file which you are going to download"   #change the compress to -p
+        echo "-p|--pack -> use it when you want to compress file which you are going to download"   #change the compress to -p
 		echo "-c|--container -> Specify the target container"
 		echo "script usage: kubectl ex-cp [-p|-u] [-c container_name] pod_name [file path]" #add new sample command
         exit 1
