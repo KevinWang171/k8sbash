@@ -1,6 +1,8 @@
 # k8sbash
 
 **Main change:**
+
+
 a. Change compression from "-c" to "-p" (abbreviation for pack)
 
 b. Introduce the "-c" option to add possibility to specify container.
@@ -100,6 +102,8 @@ pm2apps.json has been downloaded
 6. Test it with uncompress option.
 
 ```
+
+
 kubectl ex-cp -u solr-0 /opt/solr/NOTICE.txtyou have selected -u flag, so [file/folder] will be uncompressed
 script download file from solr-0 pod on date: 11-03-2025-13-52
 pod name solr-0
