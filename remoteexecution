@@ -1,0 +1,129 @@
+import org.apache.http.HttpResponse
+import org.apache.http.NameValuePair
+import org.apache.http.client.HttpClient
+import org.apache.http.client.entity.UrlEncodedFormEntity
+import org.apache.http.client.methods.HttpGet
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.message.BasicNameValuePair
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.client.config.RequestConfig
+import org.apache.http.conn.ssl.*
+import org.apache.http.ssl.SSLContextBuilder
+import java.net.CookieHandler
+import java.net.CookieManager
+import javax.net.ssl.*
+import groovy.json.*
+
+// 配置参数 ===================================================================
+ADMIN_USER = 'zk001'
+ADMIN_PASSWORD = 'Test123!'
+PORT = 9002
+TIMEOUT = 15
+
+// KBA 2837733 select * from CLNodeInfos;
+
+IPs = [
+    '10.244.4.165',
+    '10.244.5.103'
+]
+
+// execute groovy on remote server
+REMOTE_SCRIPT = '''
+def startTime = new java.util.Date(jang.management.ManagementFactory.runtimeMXBean.startTime)
+def inetAddress = InetAddress.localHost
+println "Script executed on IP: ${inetAddress} at startTime: ${startTime} by user: ${userService.currentUser.uid}"
+'''
+
+// method ===================================================================
+jsonSlurper = new JsonSlurper()
+
+def formatHacOutput(string) {
+    jsonSlurper.parseText(string)
+}
+
+// SSL配置
+CookieHandler.setDefault(new CookieManager())
+
+SSLContext sslContext = SSLContextBuilder.create().loadTrustMaterial(new TrustSelfSignedStrategy()).build()
+HostnameVerifier allowAllHosts = new NoopHostnameVerifier()
+SSLConnectionSocketFactory connectionFactory = new SSLConnectionSocketFactory(sslContext, allowAllHosts)
+
+config = RequestConfig.custom()
+    .setConnectTimeout(TIMEOUT * 1000)
+    .setConnectionRequestTimeout(TIMEOUT * 1000)
+    .setSocketTimeout(TIMEOUT * 1000).build()
+
+client = HttpClients.custom().setDefaultRequestConfig(config).setSSLSocketFactory(connectionFactory).build()
+
+// generate header
+private def basicAuthHeader() {
+    def userCredentials = "${ADMIN_USER}:${ADMIN_PASSWORD}"
+    'Basic ' + new String(org.apache.commons.codec.binary.Base64.encodeBase64(userCredentials.getBytes()), 'US-ASCII')
+}
+
+// execute method
+private def scriptExecute(def host, def csrf, def scriptToPost) {
+    // generate url
+    def executeUrl = "https://${host}:${PORT}/hac/console/scripting/execute"
+    def httpPost = new HttpPost(executeUrl)
+
+    httpPost.setHeader('Authorization', basicAuthHeader())
+    httpPost.setHeader('Content-Type', 'application/x-www-form-urlencoded')
+    httpPost.setHeader('X-CSRF-TOKEN', csrf)
+
+    def params = [
+        new BasicNameValuePair('scriptType', 'groovy'),
+        new BasicNameValuePair('script', scriptToPost),
+        new BasicNameValuePair('commit', 'false')
+    ]
+
+    httpPost.setEntity(new UrlEncodedFormEntity(params))
+
+    def response = client.execute(httpPost)
+    if (response.statusLine.statusCode != 200) {
+        throw new Exception("Execution failed on ${host}: ${response.statusLine.reasonPhrase}")
+    }
+    return response.entity.content.text
+}
+
+private def getScriptHtml(def host) {
+    def hacConsoleUrl = "https://${host}:${PORT}/hac/console/scripting/"
+    def httpGet = new HttpGet(hacConsoleUrl)
+    httpGet.setHeader('Authorization', basicAuthHeader())
+    def response = client.execute(httpGet)
+    response.entity.content.text
+}
+
+private def extractCSRFToken(html) {
+    // change the expression
+    def pattern = /<meta name="_csrf" content="([^"]+)"\s*\/?>/
+    def matcher = html =~ pattern
+
+    //
+    if (matcher) {
+        return matcher[0][1]  // return
+    } else {
+        throw new Exception('CSRF token not found')
+    }
+}
+
+private def getCSRFToken(def host) {
+    extractCSRFToken(getScriptHtml(host))
+}
+
+// execute the main method
+def executeScript(clusterIPs, SCRIPT_TO_POST) {
+    clusterIPs.each { ip ->
+        try {
+            def csrf = getCSRFToken(ip)
+            def result = scriptExecute(ip, csrf, SCRIPT_TO_POST)
+            println "execution result ${ip}: ${formatHacOutput(result)}"
+        } catch (Exception e) {
+            println "pod ${ip} execution failed: ${e.message}"
+        }
+    }
+}
+
+// perform execution
+executeScript(IPs, REMOTE_SCRIPT)
+return 'execution finished'
