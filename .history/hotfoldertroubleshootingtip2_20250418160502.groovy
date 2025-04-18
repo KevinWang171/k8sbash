@@ -1,0 +1,208 @@
+package commerce.hac
+
+import org.apache.http.client.entity.UrlEncodedFormEntity
+import org.apache.http.client.methods.HttpGet
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.message.BasicNameValuePair
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.client.config.RequestConfig
+import org.apache.http.impl.client.*
+import org.apache.http.conn.ssl.*
+import org.apache.http.ssl.SSLContextBuilder
+import org.apache.http.impl.cookie.*
+import java.net.CookieHandler
+import java.net.CookieManager
+import javax.net.ssl.*
+
+import groovy.json.*
+
+// Admin credentials
+ADMIN_USER = 'zk001'
+ADMIN_PASSWORD = 'Test123!'
+PORT = 443
+TIMEOUT = 15 // seconds
+jessionID = null
+
+// Define host to pod mapping
+def HOST_TO_PODS = [
+    'backoffice.cp96avkh5f-customers1-s10-public.model-t.cc.commerce.ondemand.com': [
+        'backoffice-58cfbd5b5c-4g2n2',
+        'backoffice-58cfbd5b5c-w49dd'
+    ],
+    'backgroundprocessing.cp96avkh5f-customers1-s10-public.model-t.cc.commerce.ondemand.com': [
+        'backgroundprocessing-69844d6cb7-rbprm'
+    ]
+]
+
+// Sample script to run
+def Troubleshootingforhotfolder = '''
+import org.springframework.integration.context.IntegrationContextUtils
+import de.hybris.platform.core.Registry
+
+// Display hybris cluster status
+def cId = Registry.getClusterID()
+def cGrps = Registry.getClusterGroups()
+
+println 'CLUSTER STATUS'
+println ' - Id:' + cId + ' Groups:' + cGrps
+
+// Display election status
+def ei = spring.parent.getBean('hotfolderLeaderInitiator')
+println '\\nELECTION STATUS'
+println ' - Role:' + ei.role + ' Context:' + ei.context
+
+def lr
+if (spring.parent.containsBeanDefinition('jGroupsLockRegistry')) {
+    lr = spring.parent.getBean('jGroupsLockRegistry')
+} else if (spring.parent.containsBeanDefinition('cloudHotfoldersLeaderLockRegistry')) {
+    lr = spring.parent.getBean('cloudHotfoldersLeaderLockRegistry')
+}
+
+println ' - Registry:' + lr
+lr.locks.each { println ' - Lock:' + it }
+
+// Display integration service status
+def rc = spring.parent.getBean(IntegrationContextUtils.INTEGRATION_LIFECYCLE_ROLE_CONTROLLER)
+println '\\nINTEGRATION STATUS'
+rc.roles.each { println ' - Role:' + it + ' Endpoints:' + rc.getEndpointsRunningStatus(it) }
+
+return
+'''
+
+
+// ========== Utility Functions ==========
+
+def formatHacOutput(string) {
+    def jsonSlurper = new JsonSlurper()
+    return jsonSlurper.parseText(string)
+}
+
+def buildClient(cookieStore) {
+    CookieHandler.setDefault(new CookieManager())
+    def sslContext = SSLContextBuilder.create().loadTrustMaterial(new TrustSelfSignedStrategy()).build()
+    def connectionFactory = new SSLConnectionSocketFactory(sslContext, new NoopHostnameVerifier())
+
+    def config = RequestConfig.custom()
+        .setConnectTimeout(TIMEOUT * 1000)
+        .setConnectionRequestTimeout(TIMEOUT * 1000)
+        .setSocketTimeout(TIMEOUT * 1000).build()
+
+    return HttpClients.custom()
+        .setDefaultRequestConfig(config)
+        .setSSLSocketFactory(connectionFactory)
+        .setDefaultCookieStore(cookieStore)
+        .build()
+}
+
+private def basicAuthHeader() {
+    def userCredentials = "${ADMIN_USER}:${ADMIN_PASSWORD}"
+    return "Basic " + new String(org.apache.commons.codec.binary.Base64.encodeBase64(userCredentials.getBytes()), "US-ASCII")
+}
+
+private def scriptExecute(def host, def csrf, def podId, def scriptToPost) {
+    def urlString = "https://${host}:${PORT}/hac/console/scripting/execute"
+    def httpPost = new HttpPost(urlString)
+    httpPost.setHeader("Authorization", basicAuthHeader())
+    httpPost.setHeader("Content-Type", "application/x-www-form-urlencoded")
+    httpPost.setHeader("X-CSRF-TOKEN", csrf)
+
+    def urlParameters = [
+        new BasicNameValuePair("scriptType", "groovy"),
+        new BasicNameValuePair("script", scriptToPost),
+        new BasicNameValuePair("commit", "false")
+    ]
+    httpPost.setEntity(new UrlEncodedFormEntity(urlParameters))
+
+    def cookieStore = new BasicCookieStore()
+    cookieStore.addCookie(makeRouteCookie(host, podId))
+    cookieStore.addCookie(makeSessionCookie(host))
+
+    def client = buildClient(cookieStore)
+    def httpResponse = client.execute(httpPost)
+
+    if (httpResponse.statusLine.statusCode != 200) {
+        throw new Exception("Failed script execution on ${host}/${podId} - ${httpResponse.statusLine.reasonPhrase}")
+    }
+
+    return httpResponse.entity.content.text
+}
+
+private def getScriptHtml(def host, def podId) {
+    def url = "https://${host}:${PORT}/hac/console/scripting/"
+    def httpGet = new HttpGet(url)
+    httpGet.setHeader("Authorization", basicAuthHeader())
+
+    def cookieStore = new BasicCookieStore()
+    cookieStore.addCookie(makeRouteCookie(host, podId))
+
+    def client = buildClient(cookieStore)
+    def response = client.execute(httpGet)
+
+    for (def c : cookieStore.getCookies()) {
+        if (c.getName() == "JSESSIONID") jessionID = c.getValue()
+    }
+
+    return response.entity.content.text
+}
+
+private def getScriptHtml2(def host, def podId) {
+    def url = "https://${host}:${PORT}/hac/console/scripting/"
+    def httpGet = new HttpGet(url)
+
+    def cookieStore = new BasicCookieStore()
+    cookieStore.addCookie(makeRouteCookie(host, podId))
+    cookieStore.addCookie(makeSessionCookie(host))
+
+    def client = buildClient(cookieStore)
+    def response = client.execute(httpGet)
+
+    return response.entity.content.text
+}
+
+private def getCSRFToken(def host, def podId) {
+    getScriptHtml(host, podId)
+    def html = getScriptHtml2(host, podId)
+    return extractCSRFToken(html)
+}
+
+private def extractCSRFToken(html) {
+    def pattern = "<meta name=\"_csrf\" content=\"([A-Za-z0-9_\\-]+)\""
+    def matcher = java.util.regex.Pattern.compile(pattern).matcher(html)
+
+    if (matcher.find()) {
+        return matcher.group(1)
+    } else {
+        throw new Exception("Could not find CSRF token")
+    }
+}
+
+private def makeRouteCookie(def host, def podId) {
+    def cookie = new BasicClientCookie("ROUTE", '.' + podId)
+    cookie.setPath("/")
+    cookie.setDomain(host)
+    return cookie
+}
+
+private def makeSessionCookie(def host) {
+    def cookie = new BasicClientCookie("JSESSIONID", jessionID)
+    cookie.setPath("/hac")
+    cookie.setDomain(host)
+    return cookie
+}
+
+// ========== Execution Loop ==========
+
+HOST_TO_PODS.each { host, podIds ->
+    podIds.each { podId ->
+        try {
+            def csrf = getCSRFToken(host, podId)
+            println "CSRF token from ${host}/${podId}: $csrf"
+            println formatHacOutput(scriptExecute(host, csrf, podId, Troubleshootingforhotfolder))
+        } catch (Exception e) {
+            println "Error on ${host}/${podId}: ${e.message}"
+        }
+    }
+}
+
+return 'done'
+
